@@ -5,7 +5,7 @@ import hashlib
 from urllib.parse import urlencode, urlunsplit
 import dateutil.parser
 
-MARVEL_API_ENDPO123INT = os.getenv('MARVEL_API_ENDPOINT', 'gateway.marvel.com')
+MARVEL_API_ENDPOINT = os.getenv('MARVEL_API_ENDPOINT', 'gateway.marvel.com')
 PUBLIC_API_KEY = os.getenv('PUBLIC_API_KEY')
 PRIVATE_API_KEY = os.getenv('PRIVATE_API_KEY')
 
@@ -23,14 +23,32 @@ COMIC_ORDER_BY = '-onsaleDate'
 EVENTS_ORDER_BY = '-startDate'
 CREATORS_ORDER_BY = '-modified'
 
+'''
+Фильтры - наборы полей которые будут включены в ответ
+'''
+
+CHARACTER = ['id', 'name', 'description']
+COMIC = ['id', 'title', 'dates']
+EVENT = ['id', 'title', 'description', 'start', 'end']
+CREATOR = ['id', 'fullName', 'modified']
+
 UNSPLIT_TEMPLATE = [
     'https',
     'gateway.marvel.com',
-    '/v1/public/characters',
+    None,
     None,
     '']
 
 METHOD_TEMPLATE = '/v1/public/{}'
+
+
+def dict_filter(source, fields):
+    return {key: source.get(key, None) for key in fields}
+
+
+def filter_data(data, fields):
+    data['results'] = [dict_filter(result, fields) for result in data['results']]
+    return data
 
 
 def calc_hash(ts):
@@ -75,60 +93,89 @@ def creator_modified(creator):
     return dateutil.parser.parse(creator['modified'])
 
 
-async def fetch_all(session, name, ts):
-    hero_info = await fetch_method(session, 'characters', {'name': name}, ts)
+async def fetch_all(session, name, is_full, ts):
+    character_info = await fetch_method(session, 'characters', {'name': name}, ts)
 
-    if not ok(hero_info, count=1):
+    if not ok(character_info, count=1):
         return
 
-    hero_id = hero_info['data']['results'][0]['id']
+    character_id = character_info['data']['results'][0]['id']
 
-    comics_info = await fetch_method(session, 'characters/{}/comics'.format(hero_id),
-                                     {'format': COMIC_FORMAT, 'orderBy': COMIC_ORDER_BY, 'limit': LIMIT}, ts)
-    events_info = await fetch_method(session, 'characters/{}/events'.format(hero_id),
-                                     {'orderBy': EVENTS_ORDER_BY, 'limit': LIMIT}, ts)
+    comics_info = await fetch_method(session, 'characters/{}/comics'.format(character_id),
+                                     {'format': COMIC_FORMAT,
+                                      'orderBy': COMIC_ORDER_BY,
+                                      'limit': LIMIT},
+                                     ts)
+    events_info = await fetch_method(session, 'characters/{}/events'.format(character_id),
+                                     {'orderBy': EVENTS_ORDER_BY,
+                                      'limit': LIMIT},
+                                     ts)
 
     comics_ids = comma_join(extract_ids(comics_info))
     events_ids = comma_join(extract_ids(events_info))
 
-    #TODO Hardcode limit for comics and events as Marvel API doesn't accept more than 10 in such request
+    # TODO Hardcode limit for comics and events as Marvel API doesn't accept more than 10 in such request
 
     comic_creators_info = await fetch_method(session, 'creators',
-                                             {'events': comics_ids[:10], 'orderBy': CREATORS_ORDER_BY, 'limit': LIMIT}, ts)
+                                             {'comics': comics_ids[:10],
+                                              'orderBy': CREATORS_ORDER_BY,
+                                              'limit': LIMIT},
+                                             ts)
     events_creators_info = await fetch_method(session, 'creators',
-                                              {'events': events_ids[:10], 'orderBy': CREATORS_ORDER_BY, 'limit': LIMIT}, ts)
+                                              {'events': events_ids[:10],
+                                               'orderBy': CREATORS_ORDER_BY,
+                                               'limit': LIMIT},
+                                              ts)
 
     creators = sorted(comic_creators_info['data']['results'] + events_creators_info['data']['results'],
                       key=creator_modified)
 
+    creators_data = {
+        "offset": 0,
+        "limit": 12,
+        "total": len(creators[:12]),
+        "count": len(creators[:12]),
+        "results": creators
+    }
+
+    filtered_character = character_info['data']
+    filtered_comics = comics_info['data']
+    filtered_events = events_info['data']
+    filtered_creators = creators_data
+
+    if not is_full:
+
+        filtered_character = filter_data(character_info['data'], CHARACTER)
+        filtered_comics = filter_data(comics_info['data'], COMIC)
+        filtered_events = filter_data(events_info['data'], EVENT)
+        filtered_creators = filter_data(creators_data, CREATOR)
+
     return {
-        "copyright": hero_info['copyright'],
-        "attributionText": hero_info["attributionText"],
-        "attributionHTML": hero_info["attributionHTML"],
-        'comics': comics_info['data'],
-        'events': events_info['data'],
-        'creators': {
-            "offset": 0,
-            "limit": 12,
-            "total": len(creators[:12]),
-            "count": len(creators[:12]),
-            "results": creators
-        }
+        "copyright": character_info['copyright'],
+        "attributionText": character_info["attributionText"],
+        "attributionHTML": character_info["attributionHTML"],
+        'character': filtered_character,
+        'comics': filtered_comics,
+        'events': filtered_events,
+        'creators': filtered_creators
 
     }
 
 
-async def fetch_hero(name, ts):
+async def fetch_character(name, is_full, ts):
     async with aiohttp.ClientSession() as session:
-        hero_info = await fetch_all(session, name, ts)
-        return hero_info
+        character_info = await fetch_all(session, name, is_full, ts)
+        return character_info
 
 
 async def handle(request):
     ts = round(request.loop.time())
 
-    name = request.match_info.get('name', "Anonymous")
-    data = await fetch_hero(name, ts)
+    name = request.match_info.get('name', "Superman")
+
+    is_full= request.query.get('full') == 'true'
+
+    data = await fetch_character(name,is_full, ts)
     return web.json_response(data)
 
 
