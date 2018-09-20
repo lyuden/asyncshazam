@@ -1,0 +1,13 @@
+Docker compose
+
+1. Rename .env.example to .env
+2. Edit .env to replace public and private with your public and private keys from Marvel API
+3. Run docker-compose up --build ( you may omit --build if you didn't change code from last launch)
+4. Open http://localhost:8080/spider-man there should be json response with relevant information
+
+
+Docker
+
+1. Rename Dockerfile.standalone to docker
+2. Edit Dockerfile by placing public and private keys in relevant environmental variables
+3. Build Docker image and run container.

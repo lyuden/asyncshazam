@@ -20,6 +20,12 @@ COPY web/server.py /asyncshazam/web/
 
 WORKDIR /asyncshazam/
 
+ENV PUBLIC_API_KEY public
+ENV PRIVATE_API_KEY private
+
+EXPOSE 8080
+
 CMD ["./venv/bin/python","web/server.py"]
+
 
 
