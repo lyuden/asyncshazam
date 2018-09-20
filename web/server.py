@@ -93,7 +93,7 @@ def creator_modified(creator):
     return dateutil.parser.parse(creator['modified'])
 
 
-async def fetch_all(session, name, is_full, ts):
+async def fetch_character_info(session, name, is_full, ts):
     character_info = await fetch_method(session, 'characters', {'name': name}, ts)
 
     if not ok(character_info, count=1):
@@ -164,7 +164,9 @@ async def fetch_all(session, name, is_full, ts):
 
 async def fetch_character(name, is_full, ts):
     async with aiohttp.ClientSession() as session:
-        character_info = await fetch_all(session, name, is_full, ts)
+        character_info = await fetch_character_info(session, name, is_full, ts)
+        if character_info is None:
+            return {'error': 'There is no such character'}
         return character_info
 
 
