@@ -1,11 +1,21 @@
 import os
-from aiohttp import web
+from aiohttp import web, ClientError, InvalidURL, ClientResponseError
 import aiohttp
 import hashlib
 from urllib.parse import urlencode, urlunsplit
 import dateutil.parser
 
-MARVEL_API_ENDPOINT = os.getenv('MARVEL_API_ENDPOINT', 'gateway.marvel.com')
+import logging
+
+# logging.basicConfig(level=logging.DEBUG)
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+sh = logging.StreamHandler()
+logger.addHandler(sh)
+
+MARVEL_API_ENDPOINT = os.getenv('MARVEL_API_ENDPOINT', 'https://gateway.marvel.com')
 PUBLIC_API_KEY = os.getenv('PUBLIC_API_KEY')
 PRIVATE_API_KEY = os.getenv('PRIVATE_API_KEY')
 
@@ -93,6 +103,29 @@ def creator_modified(creator):
     return dateutil.parser.parse(creator['modified'])
 
 
+def log_client_error(ce, ts):
+    if isinstance(ce, InvalidURL):
+        print('Invalid Url')
+        logger.error("Client error. TS={}. Malformed URL='{}'".format(ts, ce.url))
+    elif isinstance(ce, ClientResponseError):
+        logger.error('''Client error. TS={}. Wrong response.
+         request_info
+         "{}"
+         status
+         "{}"
+         message
+         "{}"
+         headers
+         "{}"
+        '''.format(ts,
+                   ce.request_info,
+                   ce.status,
+                   ce.message,
+                   ce.headers))
+    else:
+        logger.error("Client error. TS={}. Error='{}'".format(ts, ce))
+
+
 async def fetch_character_info(session, name, is_full, ts):
     character_info = await fetch_method(session, 'characters', {'name': name}, ts)
 
@@ -144,7 +177,6 @@ async def fetch_character_info(session, name, is_full, ts):
     filtered_creators = creators_data
 
     if not is_full:
-
         filtered_character = filter_data(character_info['data'], CHARACTER)
         filtered_comics = filter_data(comics_info['data'], COMIC)
         filtered_events = filter_data(events_info['data'], EVENT)
@@ -164,7 +196,12 @@ async def fetch_character_info(session, name, is_full, ts):
 
 async def fetch_character(name, is_full, ts):
     async with aiohttp.ClientSession() as session:
-        character_info = await fetch_character_info(session, name, is_full, ts)
+        try:
+            character_info = await fetch_character_info(session, name, is_full, ts)
+        except ClientError as ce:
+            log_client_error(ce, ts)
+            return {'error': 'There was a connectivity error. Look for more info in the logs ts={}'.format(ts)}
+
         if character_info is None:
             return {'error': 'There is no such character'}
         return character_info
@@ -175,9 +212,9 @@ async def handle(request):
 
     name = request.match_info.get('name', "Superman")
 
-    is_full= request.query.get('full') == 'true'
+    is_full = request.query.get('full') == 'true'
 
-    data = await fetch_character(name,is_full, ts)
+    data = await fetch_character(name, is_full, ts)
     return web.json_response(data)
 
 
