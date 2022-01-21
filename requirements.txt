@@ -7,7 +7,7 @@ chardet==3.0.4
 decorator==4.3.0
 idna==2.7
 idna-ssl==1.1.0
-ipython==6.5.0
+ipython==7.16.3
 ipython-genutils==0.2.0
 jedi==0.12.1
 multidict==4.4.2
